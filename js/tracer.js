@@ -5,9 +5,10 @@
  *   1. Outlines: grayscale → Gaussian blur → Sobel → hysteresis threshold →
  *      morphological closing → Zhang-Suen thinning → contour tracing →
  *      Ramer-Douglas-Peucker simplification.
- *   2. Shading: dark regions are filled with nested levels of horizontal
- *      hatch strokes (tight for solid darks, wide for mid-tones, none in the
- *      highlights).
+ *   2. Shading: local contrast is boosted, then dark regions are filled with
+ *      horizontal hatch rows that cycle through a bit-reversed threshold
+ *      sequence, giving eight tone levels from solid black to untouched
+ *      highlights.
  *   3. Planning: strokes are ordered greedily by proximity, and every move
  *      between strokes is routed with A* over a cost map that prefers dark
  *      regions and lines that are already drawn, so the connecting lines hide
@@ -29,6 +30,7 @@ const DY = [0, 1, 1, 1, 0, -1, -1, -1];
  * @param {object} opts
  * @param {number} [opts.detail]   0..1 edge sensitivity
  * @param {number} [opts.shading]  0..1 how much tone to hatch (0 = outlines only)
+ * @param {number} [opts.upscale]  enlargement factor from source to working image
  * @param {{x:number,y:number}} [opts.start] stylus position in work px
  * @param {(fraction:number, stage:string)=>void} [onProgress]
  * @returns {{path: Float32Array, strokes: number, edges: Uint8Array, width: number, height: number}}
@@ -39,9 +41,13 @@ export function traceWork(pixels, opts = {}, onProgress = () => {}) {
   const detail = clamp01(opts.detail ?? 0.5);
   const shading = clamp01(opts.shading ?? 0.5);
   const start = opts.start || { x: w / 2, y: h / 2 };
+  // How much the source was enlarged to reach the working resolution. Small
+  // sources need proportionally more smoothing or their pixels become edges.
+  const upscale = Math.max(1, opts.upscale || 1);
 
   onProgress(0, 'outlines');
-  const gray = toGray(data, w, h);
+  let gray = toGray(data, w, h);
+  if (upscale > 1.5) gray = boxBlurR(gray, w, h, Math.round(upscale / 2));
   const tone = normalizeTone(gray, w, h);
   const blurred = gaussianBlur(gray, w, h);
   const mag = sobel(blurred, w, h);
@@ -115,6 +121,41 @@ function gaussianBlur(src, w, h) {
       }
       out[y * w + x] = s / norm;
     }
+  }
+  return out;
+}
+
+/** Separable box blur of radius r using running sums (O(n)). */
+function boxBlurR(src, w, h, r) {
+  const tmp = new Float32Array(w * h);
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    let sum = 0;
+    for (let x = -r; x <= r; x++) sum += src[row + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++) {
+      tmp[row + x] = sum / (2 * r + 1);
+      sum += src[row + Math.min(w - 1, x + r + 1)] - src[row + Math.max(0, x - r)];
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let sum = 0;
+    for (let y = -r; y <= r; y++) sum += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++) {
+      out[y * w + x] = sum / (2 * r + 1);
+      sum += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
+    }
+  }
+  return out;
+}
+
+/** Unsharp mask: boosts local contrast so mid-tone structure survives the hatching. */
+function localContrast(tone, w, h, amount) {
+  const r = Math.max(3, Math.round(Math.min(w, h) / 60));
+  const low = boxBlurR(boxBlurR(tone, w, h, r), w, h, r);
+  const out = new Float32Array(w * h);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = Math.min(1, Math.max(0, tone[i] + amount * (tone[i] - low[i])));
   }
   return out;
 }
@@ -434,41 +475,50 @@ function simplify(points, epsilon) {
 /* ---------------- shading ---------------- */
 
 /**
- * Hatch strokes for the dark parts of the picture: four nested levels of
- * horizontal lines. Each darker level slots its lines halfway between the
- * previous level's, so density doubles per level and the darkest tone
- * becomes a solid fill, while highlights stay untouched. Long, clean runs
- * are favoured over tonal precision: the tone is smoothed first and tiny
- * gaps inside a run are bridged.
+ * Hatch strokes for the dark parts of the picture. Rows sit at a fine pitch
+ * and cycle through a bit-reversed (van der Corput) threshold sequence, so a
+ * region of a given darkness switches on exactly that fraction of rows, with
+ * the lit rows spread as evenly as possible: 8 tone levels, solid at black,
+ * nothing in the highlights. Long, clean runs are favoured over tonal
+ * precision: the tone is smoothed first and tiny gaps inside a run are bridged.
  */
 function buildHatches(tone, w, h, shading) {
   const strokes = [];
   if (shading <= 0.02) return strokes;
-  const smooth = boxBlur3(boxBlur3(tone, w, h), w, h);
+  const sharp = localContrast(tone, w, h, 0.7);
+  const smooth = boxBlur3(sharp, w, h);
   const threshold = 0.3 + 0.55 * shading; // tones lighter than this stay white
-  const u = 1.7; // line pitch at solid black, in work px
-  const levels = [
-    { t: threshold, spacing: 8 * u, offset: 0 },
-    { t: threshold * 0.78, spacing: 8 * u, offset: 4 * u },
-    { t: threshold * 0.56, spacing: 4 * u, offset: 2 * u },
-    { t: threshold * 0.32, spacing: 2 * u, offset: u },
-  ];
+  const pitch = 1.6; // row spacing at solid black, in work px
+  const levels = 8;
+  const thresholds = [];
+  for (let i = 0; i < levels; i++) {
+    // bit-reversed i / levels: 0, .5, .25, .75, .125, ...
+    let v = 0, n = i, denom = 2;
+    while (n > 0) { if (n & 1) v += 1 / denom; n >>= 1; denom *= 2; }
+    thresholds.push(v);
+  }
+  const darkness = new Float32Array(w * h);
+  for (let i = 0; i < darkness.length; i++) {
+    const t = smooth[i];
+    darkness[i] = t >= threshold ? 0 : Math.pow((threshold - t) / threshold, 0.9);
+  }
   const minRun = 3;
   const maxGap = 2;
-  for (const lv of levels) {
-    for (let y = lv.offset; y < h; y += lv.spacing) {
-      const row = Math.min(h - 1, Math.round(y)) * w;
-      let runStart = -1;
-      let lastDark = -1;
-      for (let x = 0; x <= w; x++) {
-        const dark = x < w && smooth[row + x] < lv.t;
-        if (dark) {
-          if (runStart < 0) runStart = x;
-          lastDark = x;
-        } else if (runStart >= 0 && (x - lastDark > maxGap || x === w)) {
-          if (lastDark - runStart + 1 >= minRun) strokes.push([{ x: runStart, y }, { x: lastDark, y }]);
-          runStart = -1;
-        }
+  const rows = Math.floor((h - 1) / pitch);
+  for (let i = 0; i <= rows; i++) {
+    const y = i * pitch;
+    const need = thresholds[i % levels] + 0.02;
+    const row = Math.min(h - 1, Math.round(y)) * w;
+    let runStart = -1;
+    let lastDark = -1;
+    for (let x = 0; x <= w; x++) {
+      const dark = x < w && darkness[row + x] > need;
+      if (dark) {
+        if (runStart < 0) runStart = x;
+        lastDark = x;
+      } else if (runStart >= 0 && (x - lastDark > maxGap || x === w)) {
+        if (lastDark - runStart + 1 >= minRun) strokes.push([{ x: runStart, y }, { x: lastDark, y }]);
+        runStart = -1;
       }
     }
   }
@@ -568,21 +618,22 @@ function planPath(strokes, tone, w, h, start, onProgress) {
  */
 class Router {
   constructor(tone, w, h) {
-    this.scale = 2;
+    // Keep the routing grid around 300 cells wide whatever the working resolution.
+    const scale = (this.scale = Math.max(2, Math.round(w / 300)));
     this.w = w;
     this.h = h;
-    const cw = (this.cw = Math.ceil(w / 2));
-    const ch = (this.ch = Math.ceil(h / 2));
+    const cw = (this.cw = Math.ceil(w / scale));
+    const ch = (this.ch = Math.ceil(h / scale));
     const n = cw * ch;
     this.base = new Float32Array(n);
     for (let cy = 0; cy < ch; cy++) {
       for (let cx = 0; cx < cw; cx++) {
         let s = 0, c = 0;
-        for (let dy = 0; dy < 2; dy++) {
-          const y = cy * 2 + dy;
+        for (let dy = 0; dy < scale; dy++) {
+          const y = cy * scale + dy;
           if (y >= h) continue;
-          for (let dx = 0; dx < 2; dx++) {
-            const x = cx * 2 + dx;
+          for (let dx = 0; dx < scale; dx++) {
+            const x = cx * scale + dx;
             if (x >= w) continue;
             s += tone[y * w + x];
             c++;
@@ -610,8 +661,8 @@ class Router {
   }
 
   cellIndex(p) {
-    const cx = Math.min(this.cw - 1, Math.max(0, (p.x / 2) | 0));
-    const cy = Math.min(this.ch - 1, Math.max(0, (p.y / 2) | 0));
+    const cx = Math.min(this.cw - 1, Math.max(0, (p.x / this.scale) | 0));
+    const cy = Math.min(this.ch - 1, Math.max(0, (p.y / this.scale) | 0));
     return cy * this.cw + cx;
   }
 
@@ -628,7 +679,7 @@ class Router {
   route(a, b) {
     const dx = b.x - a.x, dy = b.y - a.y;
     const dist = Math.hypot(dx, dy);
-    if (dist < 3) return [];
+    if (dist < this.scale * 1.5) return [];
 
     // Straight line is fine if it only crosses cheap cells.
     const steps = Math.ceil(dist);
@@ -645,12 +696,13 @@ class Router {
     const path = this.astar(this.cellIndex(a), this.cellIndex(b));
     if (!path) return [];
     // Convert cells to work px (cell centres) and simplify.
+    const half = this.scale / 2;
     const pts = path.map((i) => {
       const cx = i % this.cw;
       const cy = (i - cx) / this.cw;
-      return { x: cx * 2 + 1, y: cy * 2 + 1 };
+      return { x: cx * this.scale + half, y: cy * this.scale + half };
     });
-    const simp = simplify(pts, 0.9);
+    const simp = simplify(pts, half);
     // Drop the endpoints (the caller supplies real start/end positions).
     return simp.slice(1, -1);
   }

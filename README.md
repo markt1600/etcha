@@ -15,15 +15,17 @@ Everything runs client-side, no build step:
   - Outlines: grayscale → Gaussian blur → Sobel → hysteresis threshold →
     morphological closing → Zhang-Suen thinning → contour tracing →
     Ramer–Douglas–Peucker simplification.
-  - Shading: nested levels of horizontal hatching whose spacing halves per
-    level, so darks become solid fills, mid-tones get sparser lines, and
-    highlights stay clean.
+  - Shading: local contrast is boosted with an unsharp mask, then horizontal
+    hatch rows at a fine pitch cycle through a bit-reversed threshold
+    sequence, giving eight tone levels from solid black to untouched
+    highlights while keeping the lines long and clean.
   - Planning: strokes are ordered greedily by proximity, and every move between
     strokes is routed with A* over a cost map that prefers dark regions and
     lines already drawn, so the connecting lines hide inside the picture.
     Since the stylus can never lift, those moves are part of the path (there is
     a cheat toggle to hide them).
   Planning runs in a Web Worker (`js/tracer.worker.js`) with a main-thread fallback.
+- The drawing surface is 1000 px wide with a thin line, so fine detail survives.
 - `js/etch.js` animates the stylus along that path on a canvas, and rotates
   the knobs. Knob angles are a pure function of stylus position, just like
   the real toy: left knob = horizontal, right knob = vertical.

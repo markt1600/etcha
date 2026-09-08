@@ -25,12 +25,12 @@ export class EtchASketch {
     this.blank = this._makeBlankScreen();
 
     // One full knob turn moves the stylus this many screen px.
-    this.pxPerTurn = 110;
+    this.pxPerTurn = 150;
     this.pos = { x: width / 2, y: height / 2 };
-    this.speed = 600; // px / s
+    this.speed = 2000; // px / s
     this.hideTravel = false;
-    this.lineWidth = 1.9;
-    this.lineColor = '#3f3f42';
+    this.lineWidth = 1.7;
+    this.lineColor = '#38383b';
 
     this.points = null;
     this.cum = null;
@@ -144,7 +144,8 @@ export class EtchASketch {
 
   _tick(now) {
     if (!this.playing) return;
-    const dt = Math.min(0.1, (now - this._last) / 1000);
+    // rAF timestamps can precede the performance.now() taken in play(); never step backwards.
+    const dt = Math.max(0, Math.min(0.1, (now - this._last) / 1000));
     this._last = now;
     this._advance(this.speed * dt);
     if (this.done) {
@@ -160,7 +161,7 @@ export class EtchASketch {
     const pts = this.points;
     const cum = this.cum;
     const ctx = this.ctx;
-    const target = Math.min(this.total, this.progress + distance);
+    const target = Math.min(this.total, this.progress + Math.max(0, distance));
 
     ctx.save();
     ctx.lineWidth = this.lineWidth;

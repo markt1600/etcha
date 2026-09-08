@@ -2,8 +2,8 @@ import { traceWork } from './tracer.js';
 import { EtchASketch } from './etch.js';
 import { makeSampleImage } from './sample.js';
 
-const SCREEN_W = 720;
-const SCREEN_H = 445;
+const SCREEN_W = 1000;
+const SCREEN_H = 618;
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -64,7 +64,7 @@ const etch = new EtchASketch({
 /* ---------------- speed & detail ---------------- */
 
 const SPEED_MIN = 12;
-const SPEED_MAX = 40000;
+const SPEED_MAX = 80000;
 
 function sliderToSpeed(v) {
   const t = v / 1000;
@@ -72,11 +72,11 @@ function sliderToSpeed(v) {
 }
 
 function speedName(pxPerSec) {
-  if (pxPerSec < 60) return 'Meditative';
-  if (pxPerSec < 250) return 'Leisurely';
-  if (pxPerSec < 1200) return 'Brisk';
-  if (pxPerSec < 5000) return 'Frantic';
-  if (pxPerSec < 20000) return 'Ludicrous';
+  if (pxPerSec < 80) return 'Meditative';
+  if (pxPerSec < 400) return 'Leisurely';
+  if (pxPerSec < 2500) return 'Brisk';
+  if (pxPerSec < 9000) return 'Frantic';
+  if (pxPerSec < 30000) return 'Ludicrous';
   return 'Time-lapse';
 }
 
@@ -209,7 +209,7 @@ function loadSample() {
 
 /* ---------------- tracing & drawing ---------------- */
 
-const WORK_WIDTH = 600;
+const WORK_WIDTH = 1000;
 
 let worker = null;
 let workerBroken = false;
@@ -249,7 +249,7 @@ function prepareWorkImage(source) {
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(source, 0, 0, w, h);
   const img = ctx.getImageData(0, 0, w, h);
-  return { pixels: { data: img.data, width: w, height: h }, ox, oy, workScale };
+  return { pixels: { data: img.data, width: w, height: h }, ox, oy, workScale, upscale: w / source.width };
 }
 
 function runTrace(pixels, opts, onProgress) {
@@ -303,7 +303,7 @@ async function retrace() {
   const startWork = { x: etch.pos.x * prep.workScale - prep.ox, y: etch.pos.y * prep.workScale - prep.oy };
   let result;
   try {
-    result = await runTrace(prep.pixels, { detail: detailValue(), shading: shadingValue(), start: startWork }, (f, stage) => {
+    result = await runTrace(prep.pixels, { detail: detailValue(), shading: shadingValue(), start: startWork, upscale: prep.upscale }, (f, stage) => {
       if (run !== traceRun) return;
       const label = stage === 'planning' ? 'Planning the route' : stage === 'shading' ? 'Working out the shading' : 'Finding the outlines';
       el.status.textContent = `${label}… ${Math.round(f * 100)}%`;
@@ -366,7 +366,7 @@ function drawPlanThumb(path) {
   ctx.fillRect(0, 0, c.width, c.height);
   if (!path.length) return;
   ctx.strokeStyle = '#3f3f42';
-  ctx.lineWidth = 1.6;
+  ctx.lineWidth = 1.4;
   ctx.lineJoin = 'round';
   ctx.beginPath();
   ctx.moveTo(etch.pos.x, etch.pos.y);
@@ -522,3 +522,6 @@ el.detailLabel.textContent = detailName(detailValue());
 el.shadingLabel.textContent = shadingName(shadingValue());
 setButtons();
 getWorker();
+
+// Handy for poking at things from the console.
+window.etcha = { etch, state };
