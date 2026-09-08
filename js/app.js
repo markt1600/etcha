@@ -31,6 +31,7 @@ const el = {
   shading: $('shading'),
   shadingLabel: $('shadingLabel'),
   hatchStyle: $('hatchStyle'),
+  fidelity: $('fidelity'),
   hideTravel: $('hideTravel'),
   btnPlay: $('btnPlay'),
   btnRestart: $('btnRestart'),
@@ -210,7 +211,19 @@ function loadSample() {
 
 /* ---------------- tracing & drawing ---------------- */
 
-const WORK_WIDTH = 1000;
+// Working resolution and line width per fidelity mode. The screen is treated
+// as 15 cm wide, so at 1000 px one pixel is 0.15 mm. The real toy's stylus
+// scrapes a line about 0.6 mm wide and cannot resolve features much under
+// 1 mm, so "toy" mode plans at 400 px (0.375 mm per pixel) and draws with a
+// 4 px line.
+const FIDELITY = {
+  fine: { workWidth: 1000, lineWidth: 1.7 },
+  toy: { workWidth: 400, lineWidth: 4 },
+};
+
+function fidelity() {
+  return FIDELITY[el.fidelity.value] || FIDELITY.fine;
+}
 
 let worker = null;
 let workerBroken = false;
@@ -234,6 +247,7 @@ function getWorker() {
 
 /** Fit the source into the working resolution and read its pixels (main thread only). */
 function prepareWorkImage(source) {
+  const WORK_WIDTH = fidelity().workWidth;
   const workScale = WORK_WIDTH / SCREEN_W;
   const workH = Math.round(SCREEN_H * workScale);
   const margin = 0.03;
@@ -327,6 +341,7 @@ async function retrace() {
   }
   state.path = path;
   state.strokes = result.strokes;
+  state.lineWidth = fidelity().lineWidth;
   drawPlanThumb(path);
 
   if (etch.dirty) await etch.shake();
@@ -338,6 +353,7 @@ async function retrace() {
 
 function startDrawing() {
   if (!state.path) return;
+  etch.lineWidth = state.lineWidth || fidelity().lineWidth;
   etch.setPath(state.path);
   el.statStrokes.textContent = state.strokes.toLocaleString();
   el.statLength.textContent = formatLength(etch.stats.length);
@@ -367,7 +383,7 @@ function drawPlanThumb(path) {
   ctx.fillRect(0, 0, c.width, c.height);
   if (!path.length) return;
   ctx.strokeStyle = '#3f3f42';
-  ctx.lineWidth = 1.4;
+  ctx.lineWidth = (state.lineWidth || 1.7) * 0.85;
   ctx.lineJoin = 'round';
   ctx.beginPath();
   ctx.moveTo(etch.pos.x, etch.pos.y);
@@ -432,6 +448,9 @@ el.shading.addEventListener('change', () => {
   if (state.source) retrace();
 });
 el.hatchStyle.addEventListener('change', () => {
+  if (state.source) retrace();
+});
+el.fidelity.addEventListener('change', () => {
   if (state.source) retrace();
 });
 

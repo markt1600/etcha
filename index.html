@@ -96,6 +96,13 @@
           <input type="range" id="shading" min="0" max="1000" value="1000">
         </div>
         <div class="control">
+          <div class="control-head"><label for="fidelity">Fidelity</label></div>
+          <select id="fidelity" class="select">
+            <option value="fine" selected>Fine (finer than the real toy)</option>
+            <option value="toy">Real toy (0.6 mm line, 15 cm screen)</option>
+          </select>
+        </div>
+        <div class="control">
           <div class="control-head"><label for="hatchStyle">Shading style</label></div>
           <select id="hatchStyle" class="select">
             <option value="flow" selected>Follow the picture's shapes</option>

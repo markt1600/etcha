@@ -29,6 +29,9 @@ Everything runs client-side, no build step:
     a cheat toggle to hide them).
   Planning runs in a Web Worker (`js/tracer.worker.js`) with a main-thread fallback.
 - The drawing surface is 1000 px wide with a thin line, so fine detail survives.
+  A "Real toy" fidelity mode plans at 400 px instead, which on a 15 cm screen
+  gives the real stylus's 0.6 mm line and roughly 1 mm minimum feature size
+  (retracing is still assumed perfect).
 - `js/etch.js` animates the stylus along that path on a canvas, and rotates
   the knobs. Knob angles are a pure function of stylus position, just like
   the real toy: left knob = horizontal, right knob = vertical.
