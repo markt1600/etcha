@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Etcha · an Etch A Sketch that draws your pictures</title>
+  <meta name="description" content="Drop in a picture and watch a virtual Etch A Sketch draw it, one continuous line, knob by knob.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lobster&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Etcha</h1>
+    <p>Drop in a picture. Watch the knobs draw it, one unbroken line at a time.</p>
+  </header>
+
+  <main class="layout">
+    <section class="stage">
+      <div class="toy-wrap">
+        <div class="toy" id="toy" aria-label="Etch A Sketch">
+          <div class="logo" aria-hidden="true">Etch A Sketch</div>
+
+          <div class="screen-frame">
+            <div class="screen">
+              <canvas id="screen" width="720" height="445" aria-label="Drawing screen"></canvas>
+              <div class="gloss" aria-hidden="true"></div>
+              <div class="screen-hint" id="screenHint">
+                <span>Drop a picture anywhere<br><small>or use the panel to browse, paste, or try a sample</small></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="knob-base left" aria-hidden="true">
+            <div class="knob" id="knobL">
+              <div class="knob-ridges"></div>
+              <div class="knob-face"><span class="knob-mark"></span></div>
+            </div>
+          </div>
+          <div class="knob-base right" aria-hidden="true">
+            <div class="knob" id="knobR">
+              <div class="knob-ridges"></div>
+              <div class="knob-face"><span class="knob-mark"></span></div>
+            </div>
+          </div>
+
+          <div class="tagline" aria-hidden="true">MAGIC SCREEN</div>
+        </div>
+      </div>
+
+      <div class="progress" id="progressWrap" hidden>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-text" id="status">Waiting for a picture…</div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="card">
+        <h2>Picture</h2>
+        <label class="dropzone" id="dropzone" for="fileInput">
+          <input type="file" id="fileInput" accept="image/*" hidden>
+          <div class="dropzone-empty" id="dropEmpty">
+            <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true"><path fill="currentColor" d="M19 13a1 1 0 0 0-1 1v.38l-1.48-1.48a2.79 2.79 0 0 0-3.93 0l-.7.7-2.48-2.48a2.85 2.85 0 0 0-3.93 0L4 12.6V7a1 1 0 0 1 1-1h7a1 1 0 0 0 0-2H5a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3v-5a1 1 0 0 0-1-1ZM5 20a1 1 0 0 1-1-1v-3.57l2.9-2.9a.79.79 0 0 1 1.09 0l3.17 3.17 4.3 4.3Zm13-1a.89.89 0 0 1-.18.53L13.31 15l.7-.7a.77.77 0 0 1 1.1 0L18 17.21Zm4.71-14.71-3-3a1 1 0 0 0-.33-.21 1 1 0 0 0-.76 0 1 1 0 0 0-.33.21l-3 3a1 1 0 0 0 1.42 1.42L18 4.41V10a1 1 0 0 0 2 0V4.41l1.29 1.3a1 1 0 0 0 1.42 0 1 1 0 0 0 0-1.42Z"/></svg>
+            <strong>Drop an image here</strong>
+            <span>or click to browse · paste works too</span>
+          </div>
+          <div class="dropzone-preview" id="dropPreview" hidden>
+            <img id="thumb" alt="The picture being drawn">
+            <canvas id="edgeThumb" width="720" height="445" aria-label="Preview of the planned drawing"></canvas>
+            <div class="preview-meta">
+              <span id="fileName">image</span>
+              <span class="change">Change</span>
+            </div>
+          </div>
+        </label>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="showEdges"> Show the planned drawing</label>
+          <button type="button" class="btn ghost small" id="btnSample">Try a sample</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Drawing</h2>
+        <div class="control">
+          <div class="control-head"><label for="speed">Speed</label><span id="speedLabel">Brisk</span></div>
+          <input type="range" id="speed" min="0" max="1000" value="560">
+        </div>
+        <div class="control">
+          <div class="control-head"><label for="detail">Outline detail</label><span id="detailLabel">Medium</span></div>
+          <input type="range" id="detail" min="0" max="1000" value="500">
+        </div>
+        <div class="control">
+          <div class="control-head"><label for="shading">Shading</label><span id="shadingLabel">Medium</span></div>
+          <input type="range" id="shading" min="0" max="1000" value="500">
+        </div>
+        <label class="check"><input type="checkbox" id="hideTravel"> Cheat: hide the lines drawn while travelling between shapes</label>
+        <div class="buttons">
+          <button type="button" class="btn primary" id="btnPlay" disabled>Pause</button>
+          <button type="button" class="btn" id="btnRestart" disabled>Restart</button>
+          <button type="button" class="btn" id="btnShake">Shake to erase</button>
+        </div>
+        <dl class="stats" id="stats" hidden>
+          <div><dt>Strokes</dt><dd id="statStrokes">–</dd></div>
+          <div><dt>Line length</dt><dd id="statLength">–</dd></div>
+          <div><dt>Knob turns</dt><dd id="statTurns">–</dd></div>
+        </dl>
+      </div>
+
+      <p class="footnote">Everything runs in your browser. Your picture never leaves this page.</p>
+    </aside>
+  </main>
+
+  <div class="drop-overlay" id="dropOverlay" aria-hidden="true"><div>Drop your picture</div></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

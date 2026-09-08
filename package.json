@@ -1,0 +1,10 @@
+{
+  "name": "etcha",
+  "version": "1.0.0",
+  "description": "An Etch A Sketch that draws your pictures, in the browser.",
+  "private": true,
+  "scripts": {
+    "dev": "npx --yes serve -l 3000 ."
+  },
+  "license": "MIT"
+}
