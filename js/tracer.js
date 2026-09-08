@@ -6,9 +6,9 @@
  *      morphological closing → Zhang-Suen thinning → contour tracing →
  *      Ramer-Douglas-Peucker simplification.
  *   2. Shading: local contrast is boosted, then dark regions are filled with
- *      horizontal hatch rows that cycle through a bit-reversed threshold
- *      sequence, giving eight tone levels from solid black to untouched
- *      highlights.
+ *      hatch lines that follow the picture's edge tangent flow (see flow.js),
+ *      in four hierarchical densities so tone runs smoothly from solid black
+ *      to untouched highlights. A classic horizontal mode is kept as well.
  *   3. Planning: strokes are ordered greedily by proximity, and every move
  *      between strokes is routed with A* over a cost map that prefers dark
  *      regions and lines that are already drawn, so the connecting lines hide
@@ -22,6 +22,9 @@
  * `traceWork` takes RGBA pixels of the already-fitted working image.
  */
 
+import { toGray, boxBlurR, boxBlur3, gaussianBlur, sobel, simplify, lerp, clamp01 } from './imageops.js';
+import { computeFlow, flowHatches } from './flow.js';
+
 const DX = [1, 1, 0, -1, -1, -1, 0, 1];
 const DY = [0, 1, 1, 1, 0, -1, -1, -1];
 
@@ -31,6 +34,7 @@ const DY = [0, 1, 1, 1, 0, -1, -1, -1];
  * @param {number} [opts.detail]   0..1 edge sensitivity
  * @param {number} [opts.shading]  0..1 how much tone to hatch (0 = outlines only)
  * @param {number} [opts.upscale]  enlargement factor from source to working image
+ * @param {boolean} [opts.flow]    shading follows the picture's shapes (default) or runs horizontally
  * @param {{x:number,y:number}} [opts.start] stylus position in work px
  * @param {(fraction:number, stage:string)=>void} [onProgress]
  * @returns {{path: Float32Array, strokes: number, edges: Uint8Array, width: number, height: number}}
@@ -39,7 +43,8 @@ const DY = [0, 1, 1, 1, 0, -1, -1, -1];
 export function traceWork(pixels, opts = {}, onProgress = () => {}) {
   const { data, width: w, height: h } = pixels;
   const detail = clamp01(opts.detail ?? 0.5);
-  const shading = clamp01(opts.shading ?? 0.5);
+  const shading = clamp01(opts.shading ?? 1);
+  const flowShading = opts.flow !== false;
   const start = opts.start || { x: w / 2, y: h / 2 };
   // How much the source was enlarged to reach the working resolution. Small
   // sources need proportionally more smoothing or their pixels become edges.
@@ -55,30 +60,24 @@ export function traceWork(pixels, opts = {}, onProgress = () => {}) {
   const closed = close3x3(bands, w, h);
   const edges = thin(closed, w, h);
 
-  const minLength = Math.round(lerp(12, 4, detail));
+  const minLength = Math.round(lerp(12, 5, detail));
   const rawContours = extractContours(edges, w, h, minLength);
-  const epsilon = lerp(0.9, 0.5, detail);
+  const epsilon = lerp(0.9, 0.45, detail);
   const strokes = rawContours.map((c) => simplify(c, epsilon)).filter((c) => c.length >= 2);
 
   onProgress(0.1, 'shading');
-  const hatches = buildHatches(tone, w, h, shading);
+  const hatches = flowShading
+    ? buildFlowHatches(tone, w, h, shading, (f) => onProgress(0.1 + 0.3 * f, 'shading'))
+    : buildHatches(tone, w, h, shading);
   for (const s of hatches) strokes.push(s);
 
-  onProgress(0.15, 'planning');
-  const path = planPath(strokes, tone, w, h, start, (f) => onProgress(0.15 + 0.85 * f, 'planning'));
+  onProgress(0.4, 'planning');
+  const path = planPath(strokes, tone, w, h, start, (f) => onProgress(0.4 + 0.6 * f, 'planning'));
 
   return { path, strokes: strokes.length, edges, width: w, height: h };
 }
 
 /* ---------------- image processing ---------------- */
-
-function toGray(data, w, h) {
-  const out = new Float32Array(w * h);
-  for (let i = 0, j = 0; i < out.length; i++, j += 4) {
-    out[i] = 0.299 * data[j] + 0.587 * data[j + 1] + 0.114 * data[j + 2];
-  }
-  return out;
-}
 
 /** Contrast-stretched tone map in 0..1 (0 = black, 1 = white). */
 function normalizeTone(gray, w, h) {
@@ -96,58 +95,6 @@ function normalizeTone(gray, w, h) {
   return out;
 }
 
-function gaussianBlur(src, w, h) {
-  const k = [1, 4, 6, 4, 1];
-  const norm = 16;
-  const tmp = new Float32Array(w * h);
-  const out = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    const row = y * w;
-    for (let x = 0; x < w; x++) {
-      let s = 0;
-      for (let i = -2; i <= 2; i++) {
-        const xx = Math.min(w - 1, Math.max(0, x + i));
-        s += src[row + xx] * k[i + 2];
-      }
-      tmp[row + x] = s / norm;
-    }
-  }
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let s = 0;
-      for (let i = -2; i <= 2; i++) {
-        const yy = Math.min(h - 1, Math.max(0, y + i));
-        s += tmp[yy * w + x] * k[i + 2];
-      }
-      out[y * w + x] = s / norm;
-    }
-  }
-  return out;
-}
-
-/** Separable box blur of radius r using running sums (O(n)). */
-function boxBlurR(src, w, h, r) {
-  const tmp = new Float32Array(w * h);
-  const out = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    const row = y * w;
-    let sum = 0;
-    for (let x = -r; x <= r; x++) sum += src[row + Math.min(w - 1, Math.max(0, x))];
-    for (let x = 0; x < w; x++) {
-      tmp[row + x] = sum / (2 * r + 1);
-      sum += src[row + Math.min(w - 1, x + r + 1)] - src[row + Math.max(0, x - r)];
-    }
-  }
-  for (let x = 0; x < w; x++) {
-    let sum = 0;
-    for (let y = -r; y <= r; y++) sum += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
-    for (let y = 0; y < h; y++) {
-      out[y * w + x] = sum / (2 * r + 1);
-      sum += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
-    }
-  }
-  return out;
-}
 
 /** Unsharp mask: boosts local contrast so mid-tone structure survives the hatching. */
 function localContrast(tone, w, h, amount) {
@@ -160,42 +107,6 @@ function localContrast(tone, w, h, amount) {
   return out;
 }
 
-function boxBlur3(src, w, h) {
-  const out = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let s = 0, c = 0;
-      for (let dy = -1; dy <= 1; dy++) {
-        const yy = y + dy;
-        if (yy < 0 || yy >= h) continue;
-        for (let dx = -1; dx <= 1; dx++) {
-          const xx = x + dx;
-          if (xx < 0 || xx >= w) continue;
-          s += src[yy * w + xx];
-          c++;
-        }
-      }
-      out[y * w + x] = s / c;
-    }
-  }
-  return out;
-}
-
-function sobel(src, w, h) {
-  const mag = new Float32Array(w * h);
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      const i = y * w + x;
-      const a = src[i - w - 1], b = src[i - w], c = src[i - w + 1];
-      const d = src[i - 1], f = src[i + 1];
-      const g = src[i + w - 1], hh = src[i + w], k = src[i + w + 1];
-      const gx = -a + c - 2 * d + 2 * f - g + k;
-      const gy = -a - 2 * b - c + g + 2 * hh + k;
-      mag[i] = Math.hypot(gx, gy);
-    }
-  }
-  return mag;
-}
 
 function hysteresis(mag, w, h, detail) {
   const n = w * h;
@@ -219,7 +130,7 @@ function hysteresis(mag, w, h, detail) {
     if (acc >= count * 0.99) { p99 = (b / (bins - 1)) * max; break; }
   }
   const ref = Math.max(p99, 1e-6);
-  const hi = ref * lerp(0.6, 0.14, detail);
+  const hi = ref * lerp(0.6, 0.18, detail);
   const lo = hi * 0.5;
 
   const edges = new Uint8Array(n);
@@ -434,44 +345,6 @@ function extractContours(edges, w, h, minLength) {
   return contours;
 }
 
-/** Ramer-Douglas-Peucker simplification. */
-function simplify(points, epsilon) {
-  if (points.length < 3) return points;
-  const keep = new Uint8Array(points.length);
-  keep[0] = 1;
-  keep[points.length - 1] = 1;
-  const stack = [[0, points.length - 1]];
-  const eps2 = epsilon * epsilon;
-  while (stack.length) {
-    const [a, b] = stack.pop();
-    const ax = points[a].x, ay = points[a].y;
-    const bx = points[b].x, by = points[b].y;
-    const dx = bx - ax, dy = by - ay;
-    const len2 = dx * dx + dy * dy;
-    let maxD = -1;
-    let idx = -1;
-    for (let i = a + 1; i < b; i++) {
-      const px = points[i].x - ax, py = points[i].y - ay;
-      let d2;
-      if (len2 === 0) {
-        d2 = px * px + py * py;
-      } else {
-        const t = Math.max(0, Math.min(1, (px * dx + py * dy) / len2));
-        const ex = px - t * dx, ey = py - t * dy;
-        d2 = ex * ex + ey * ey;
-      }
-      if (d2 > maxD) { maxD = d2; idx = i; }
-    }
-    if (maxD > eps2 && idx > 0) {
-      keep[idx] = 1;
-      stack.push([a, idx], [idx, b]);
-    }
-  }
-  const out = [];
-  for (let i = 0; i < points.length; i++) if (keep[i]) out.push(points[i]);
-  return out;
-}
-
 /* ---------------- shading ---------------- */
 
 /**
@@ -482,13 +355,34 @@ function simplify(points, epsilon) {
  * nothing in the highlights. Long, clean runs are favoured over tonal
  * precision: the tone is smoothed first and tiny gaps inside a run are bridged.
  */
+/** Per-pixel darkness in 0..1 (0 = leave white), after local contrast and smoothing. */
+function darknessMap(tone, w, h, shading) {
+  const sharp = localContrast(tone, w, h, 0.7);
+  const smooth = boxBlur3(sharp, w, h);
+  const threshold = 0.3 + 0.48 * shading; // tones lighter than this stay white
+  const darkness = new Float32Array(w * h);
+  for (let i = 0; i < darkness.length; i++) {
+    const t = smooth[i];
+    darkness[i] = t >= threshold ? 0 : Math.pow((threshold - t) / threshold, 0.9);
+  }
+  return darkness;
+}
+
+const HATCH_PITCH = 1.6; // line spacing at solid black, in work px
+
+/** Shading that follows the picture's shapes: streamlines through the edge tangent field. */
+function buildFlowHatches(tone, w, h, shading, onProgress) {
+  if (shading <= 0.02) return [];
+  const darkness = darknessMap(tone, w, h, shading);
+  const flow = computeFlow(tone, w, h);
+  return flowHatches(darkness, flow, w, h, HATCH_PITCH, onProgress);
+}
+
 function buildHatches(tone, w, h, shading) {
   const strokes = [];
   if (shading <= 0.02) return strokes;
-  const sharp = localContrast(tone, w, h, 0.7);
-  const smooth = boxBlur3(sharp, w, h);
-  const threshold = 0.3 + 0.55 * shading; // tones lighter than this stay white
-  const pitch = 1.6; // row spacing at solid black, in work px
+  const darkness = darknessMap(tone, w, h, shading);
+  const pitch = HATCH_PITCH;
   const levels = 8;
   const thresholds = [];
   for (let i = 0; i < levels; i++) {
@@ -496,11 +390,6 @@ function buildHatches(tone, w, h, shading) {
     let v = 0, n = i, denom = 2;
     while (n > 0) { if (n & 1) v += 1 / denom; n >>= 1; denom *= 2; }
     thresholds.push(v);
-  }
-  const darkness = new Float32Array(w * h);
-  for (let i = 0; i < darkness.length; i++) {
-    const t = smooth[i];
-    darkness[i] = t >= threshold ? 0 : Math.pow((threshold - t) / threshold, 0.9);
   }
   const minRun = 3;
   const maxGap = 2;
@@ -802,10 +691,3 @@ function dirFromDelta(dx, dy) {
   return -1;
 }
 
-function lerp(a, b, t) {
-  return a + (b - a) * t;
-}
-
-function clamp01(v) {
-  return Math.min(1, Math.max(0, Number(v) || 0));
-}

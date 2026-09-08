@@ -88,12 +88,19 @@
           <input type="range" id="speed" min="0" max="1000" value="600">
         </div>
         <div class="control">
-          <div class="control-head"><label for="detail">Outline detail</label><span id="detailLabel">Medium</span></div>
-          <input type="range" id="detail" min="0" max="1000" value="500">
+          <div class="control-head"><label for="detail">Outline detail</label><span id="detailLabel">Maximum</span></div>
+          <input type="range" id="detail" min="0" max="1000" value="1000">
         </div>
         <div class="control">
-          <div class="control-head"><label for="shading">Shading</label><span id="shadingLabel">Medium</span></div>
-          <input type="range" id="shading" min="0" max="1000" value="500">
+          <div class="control-head"><label for="shading">Shading</label><span id="shadingLabel">Full</span></div>
+          <input type="range" id="shading" min="0" max="1000" value="1000">
+        </div>
+        <div class="control">
+          <div class="control-head"><label for="hatchStyle">Shading style</label></div>
+          <select id="hatchStyle" class="select">
+            <option value="flow" selected>Follow the picture's shapes</option>
+            <option value="rows">Classic horizontal rows</option>
+          </select>
         </div>
         <label class="check"><input type="checkbox" id="hideTravel"> Cheat: hide the lines drawn while travelling between shapes</label>
         <div class="buttons">

@@ -302,6 +302,13 @@ input[type="range"]::-moz-range-thumb {
 }
 input[type="range"]:focus-visible { box-shadow: 0 0 0 3px var(--ring); }
 
+.select {
+  font: inherit; font-size: 14px; color: var(--text);
+  width: 100%; padding: 8px 10px; border-radius: 10px;
+  background: var(--panel-2); border: 1px solid rgba(255, 255, 255, .08);
+}
+.select:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
+
 .check {
   display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--muted);
   cursor: pointer; line-height: 1.35;

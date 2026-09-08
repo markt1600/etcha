@@ -3,8 +3,9 @@
 An Etch A Sketch that draws your pictures.
 
 Drop in an image and a virtual Etch A Sketch traces it as one unbroken line,
-knobs twisting in real time. Adjust the speed, outline detail and shading, watch the thumbnail
-of what it is drawing, then shake to erase.
+knobs twisting in real time. Adjust the speed, outline detail, shading and shading style, watch the
+thumbnail of what it is drawing, then shake to erase. The sliders default to
+their best-quality settings.
 
 ## How it works
 
@@ -15,10 +16,12 @@ Everything runs client-side, no build step:
   - Outlines: grayscale → Gaussian blur → Sobel → hysteresis threshold →
     morphological closing → Zhang-Suen thinning → contour tracing →
     Ramer–Douglas–Peucker simplification.
-  - Shading: local contrast is boosted with an unsharp mask, then horizontal
-    hatch rows at a fine pitch cycle through a bit-reversed threshold
-    sequence, giving eight tone levels from solid black to untouched
-    highlights while keeping the lines long and clean.
+  - Shading (`js/flow.js`): local contrast is boosted with an unsharp mask,
+    then an edge tangent field is built from the picture's structure tensor
+    and evenly spaced streamlines are traced through it in four hierarchical
+    densities. Each streamline is cut into strokes where the picture is dark
+    enough for its level, so the hatching wraps around forms the way a hand
+    drawn portrait does. A classic horizontal-rows mode is available too.
   - Planning: strokes are ordered greedily by proximity, and every move between
     strokes is routed with A* over a cost map that prefers dark regions and
     lines already drawn, so the connecting lines hide inside the picture.

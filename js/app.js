@@ -30,6 +30,7 @@ const el = {
   detailLabel: $('detailLabel'),
   shading: $('shading'),
   shadingLabel: $('shadingLabel'),
+  hatchStyle: $('hatchStyle'),
   hideTravel: $('hideTravel'),
   btnPlay: $('btnPlay'),
   btnRestart: $('btnRestart'),
@@ -103,7 +104,7 @@ function detailName(d) {
   if (d < 0.4) return 'Low';
   if (d < 0.6) return 'Medium';
   if (d < 0.8) return 'High';
-  return 'Everything';
+  return 'Maximum';
 }
 
 function shadingValue() {
@@ -303,7 +304,7 @@ async function retrace() {
   const startWork = { x: etch.pos.x * prep.workScale - prep.ox, y: etch.pos.y * prep.workScale - prep.oy };
   let result;
   try {
-    result = await runTrace(prep.pixels, { detail: detailValue(), shading: shadingValue(), start: startWork, upscale: prep.upscale }, (f, stage) => {
+    result = await runTrace(prep.pixels, { detail: detailValue(), shading: shadingValue(), start: startWork, upscale: prep.upscale, flow: el.hatchStyle.value === 'flow' }, (f, stage) => {
       if (run !== traceRun) return;
       const label = stage === 'planning' ? 'Planning the route' : stage === 'shading' ? 'Working out the shading' : 'Finding the outlines';
       el.status.textContent = `${label}… ${Math.round(f * 100)}%`;
@@ -428,6 +429,9 @@ el.shading.addEventListener('input', () => {
   el.shadingLabel.textContent = shadingName(shadingValue());
 });
 el.shading.addEventListener('change', () => {
+  if (state.source) retrace();
+});
+el.hatchStyle.addEventListener('change', () => {
   if (state.source) retrace();
 });
 
