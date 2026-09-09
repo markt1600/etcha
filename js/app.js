@@ -1,6 +1,7 @@
 import { traceWork } from './tracer.js';
 import { EtchASketch } from './etch.js';
 import { makeSampleImage } from './sample.js';
+import { renderSnapshot } from './snapshot.js';
 
 const SCREEN_W = 1000;
 const SCREEN_H = 618;
@@ -36,6 +37,7 @@ const el = {
   btnPlay: $('btnPlay'),
   btnRestart: $('btnRestart'),
   btnShake: $('btnShake'),
+  btnDownload: $('btnDownload'),
   stats: $('stats'),
   statStrokes: $('statStrokes'),
   statLength: $('statLength'),
@@ -475,6 +477,33 @@ el.btnRestart.addEventListener('click', () => {
 });
 
 el.btnShake.addEventListener('click', shakeOnly);
+
+/* ---------------- download ---------------- */
+
+async function downloadPicture() {
+  el.btnDownload.disabled = true;
+  try {
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    const snap = renderSnapshot({ screenCanvas: etch.canvas, pos: etch.pos, pxPerTurn: etch.pxPerTurn });
+    const blob = await new Promise((resolve) => snap.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('could not encode the picture');
+    const base = (state.sourceName || 'blank').replace(/\.[a-z0-9]+$/i, '').replace(/[^\w.-]+/g, '-') || 'drawing';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `etcha-${base}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch (err) {
+    flashStatus(`Could not save the picture (${err.message}).`);
+  } finally {
+    el.btnDownload.disabled = false;
+  }
+}
+
+el.btnDownload.addEventListener('click', downloadPicture);
 el.btnSample.addEventListener('click', (e) => {
   e.preventDefault();
   loadSample();

@@ -4,7 +4,8 @@ An Etch A Sketch that draws your pictures.
 
 Drop in an image and a virtual Etch A Sketch traces it as one unbroken line,
 knobs twisting in real time. Adjust the speed, outline detail, shading and shading style, watch the
-thumbnail of what it is drawing, then shake to erase. The sliders default to
+thumbnail of what it is drawing, then shake to erase. "Download picture" saves
+a PNG of the whole toy with the current drawing (`js/snapshot.js` paints it). The sliders default to
 their best-quality settings.
 
 ## How it works
